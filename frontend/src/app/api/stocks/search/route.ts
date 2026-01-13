@@ -69,6 +69,88 @@ function evaluateCondition(
   }
 }
 
+// Python API経由でyfinanceから株式データを取得
+async function fetchFromPythonAPI(code: string): Promise<StockInfo | null> {
+  try {
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_VERCEL_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : "";
+
+    if (!baseUrl) {
+      return null;
+    }
+
+    const apiUrl = `${baseUrl}/api/stock?code=${code}`;
+    const response = await fetch(apiUrl);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const result = await response.json();
+    if (!result.success || !result.data) {
+      return null;
+    }
+
+    const data = result.data;
+
+    // スクリーニング実行
+    const screeningData: Record<string, number | null> = {
+      tk_deviation: null,
+      market_cap: data.market_cap,
+      equity_ratio: data.equity_ratio,
+      revenue_growth: data.revenue_growth_1y_cy,
+      operating_margin: data.operating_margin,
+      roa: data.roa,
+      per: data.per_forward,
+      pbr: data.pbr,
+    };
+
+    const screeningResults: ScreeningResult[] = SCREENING_CONDITIONS.map((cond) => {
+      const value = screeningData[cond.field];
+      const status = evaluateCondition(value, cond.op, cond.value);
+      return {
+        field: cond.field,
+        name: cond.name,
+        value: value,
+        threshold: `${cond.op} ${cond.value}${cond.unit}`,
+        status,
+      };
+    });
+
+    const passCount = screeningResults.filter((r) => r.status === "ok").length;
+    const failCount = screeningResults.filter((r) => r.status === "ng").length;
+    const unknownCount = screeningResults.filter((r) => r.status === "unknown").length;
+
+    return {
+      code,
+      name: data.company_name || `銘柄 ${code}`,
+      market: data.market || "東証",
+      sector: data.sector || "—",
+      price: data.stock_price,
+      marketCap: data.market_cap,
+      per: data.per_forward,
+      pbr: data.pbr,
+      dividendYield: data.dividend_yield,
+      operatingMargin: data.operating_margin,
+      roa: data.roa,
+      equityRatio: data.equity_ratio,
+      revenueGrowth: data.revenue_growth_1y_cy,
+      screening: {
+        passCount,
+        failCount,
+        unknownCount,
+        results: screeningResults,
+      },
+    };
+  } catch (error) {
+    console.error("Python API呼び出しエラー:", error);
+    return null;
+  }
+}
+
 /**
  * GET /api/stocks/search?code=7203
  * 銘柄コードから基本情報とスクリーニング結果を取得
@@ -86,8 +168,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // 1. Python API (yfinance) を試行
+    const pythonResult = await fetchFromPythonAPI(code);
+    if (pythonResult) {
+      return NextResponse.json({ stock: pythonResult });
+    }
+
+    // 2. フォールバック: 直接Yahoo Finance APIを試行
     const ticker = `${code}.T`;
-    // 追加のモジュールを取得
     const modules = [
       "price",
       "summaryDetail",
@@ -138,18 +226,16 @@ export async function GET(request: NextRequest) {
       ? financial.revenueGrowth.raw * 100
       : null;
 
-    // 自己資本比率（総資産と株主資本から概算）
-    // Yahoo Financeでは直接提供されないので、debtToEquityから逆算
+    // 自己資本比率（D/Eから逆算）
     let equityRatio: number | null = null;
     const debtToEquity = financial.debtToEquity?.raw;
     if (debtToEquity !== undefined && debtToEquity !== null) {
-      // D/E = 負債 / 自己資本 → 自己資本比率 = 1 / (1 + D/E) * 100
       equityRatio = (1 / (1 + debtToEquity / 100)) * 100;
     }
 
     // スクリーニング実行
     const screeningData: Record<string, number | null> = {
-      tk_deviation: null, // 四季報データがないので不明
+      tk_deviation: null,
       market_cap: marketCapOku,
       equity_ratio: equityRatio,
       revenue_growth: revenueGrowth,
