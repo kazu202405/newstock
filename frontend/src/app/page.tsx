@@ -20,7 +20,7 @@ type SearchParams = {
 const PAGE_SIZE = 50;
 
 async function getCompanies(searchParams: SearchParams) {
-  const status = searchParams.status || "PASS";
+  const status = searchParams.status || "ALL";
   const query = searchParams.q || "";
   const sector = searchParams.sector || "";
   const minCap = searchParams.minCap ? parseFloat(searchParams.minCap) : null;
@@ -50,8 +50,12 @@ async function getCompanies(searchParams: SearchParams) {
   let supaQuery = supabase
     .from("screened_latest")
     .select("*", { count: "exact" })
-    .in("company_code", watchedCodes)
-    .eq("status", status);
+    .in("company_code", watchedCodes);
+
+  // ステータスフィルタ（ALLの場合はフィルタなし）
+  if (status !== "ALL") {
+    supaQuery = supaQuery.eq("status", status);
+  }
 
   // 検索フィルタ
   if (query) {
@@ -115,7 +119,7 @@ export default async function HomePage({
   const params = await searchParams;
   const { companies, total, sectors, watchedCount } = await getCompanies(params);
 
-  const status = params.status || "PASS";
+  const status = params.status || "ALL";
   const currentPage = parseInt(params.page || "1", 10);
   const totalPages = Math.ceil(total / PAGE_SIZE);
 

@@ -79,6 +79,12 @@ export function CompanyList({
       {/* タブ */}
       <div className="flex border-b border-primary-200 mb-4">
         <button
+          onClick={() => handleStatusChange("ALL")}
+          className={`tab ${currentStatus === "ALL" ? "tab-active" : "tab-inactive"}`}
+        >
+          全て ({currentStatus === "ALL" ? total : "—"})
+        </button>
+        <button
           onClick={() => handleStatusChange("PASS")}
           className={`tab ${currentStatus === "PASS" ? "tab-active" : "tab-inactive"}`}
         >
@@ -89,6 +95,12 @@ export function CompanyList({
           className={`tab ${currentStatus === "REVIEW" ? "tab-active" : "tab-inactive"}`}
         >
           要確認 ({currentStatus === "REVIEW" ? total : "—"})
+        </button>
+        <button
+          onClick={() => handleStatusChange("FAIL")}
+          className={`tab ${currentStatus === "FAIL" ? "tab-active" : "tab-inactive"}`}
+        >
+          条件未達 ({currentStatus === "FAIL" ? total : "—"})
         </button>
       </div>
 
