@@ -1,0 +1,16 @@
+# データ取得
+yfinance>=0.2.36
+yahooquery>=2.3.7
+
+# DB
+supabase>=2.3.0
+
+# ユーティリティ
+python-dotenv>=1.0.0
+pandas>=2.0.0
+tenacity>=8.2.0
+loguru>=0.7.0
+
+# 型チェック（開発用）
+# mypy>=1.8.0
+# pandas-stubs>=2.0.0

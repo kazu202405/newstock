@@ -1,0 +1,47 @@
+# 株価・時価総額更新バッチ
+# 平日 12:10 / 16:10 JST
+
+name: Update Price Data
+
+on:
+  schedule:
+    # 平日 12:10 JST = 03:10 UTC
+    - cron: '10 3 * * 1-5'
+    # 平日 16:10 JST = 07:10 UTC
+    - cron: '10 7 * * 1-5'
+  workflow_dispatch:  # 手動実行用
+
+jobs:
+  update-price:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r batch/requirements.txt
+
+      - name: Run price update
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          cd batch
+          python main.py --mode price
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: price-logs-${{ github.run_id }}
+          path: batch/logs/
+          retention-days: 7
