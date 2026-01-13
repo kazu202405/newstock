@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { supabase, type ScreenedCompany } from "@/lib/supabase";
 import { CompanyList } from "@/components/CompanyList";
+import { StockSearch } from "@/components/StockSearch";
 
 // 動的レンダリングを強制（キャッシュなし）
 export const dynamic = "force-dynamic";
@@ -129,6 +130,9 @@ export default async function HomePage({
           登録銘柄のスクリーニング一覧（{watchedCount}銘柄登録中）
         </p>
       </div>
+
+      {/* 銘柄検索 */}
+      <StockSearch />
 
       {watchedCount === 0 ? (
         <div className="rounded-lg border border-primary-200 bg-white p-8 text-center">
