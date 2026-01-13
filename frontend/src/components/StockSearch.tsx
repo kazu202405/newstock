@@ -2,6 +2,14 @@
 
 import { useState } from "react";
 
+type ScreeningResult = {
+  field: string;
+  name: string;
+  value: number | string | null;
+  threshold: string;
+  status: "ok" | "ng" | "unknown";
+};
+
 type StockInfo = {
   code: string;
   name: string;
@@ -12,6 +20,16 @@ type StockInfo = {
   per: number | null;
   pbr: number | null;
   dividendYield: number | null;
+  operatingMargin: number | null;
+  roa: number | null;
+  equityRatio: number | null;
+  revenueGrowth: number | null;
+  screening: {
+    passCount: number;
+    failCount: number;
+    unknownCount: number;
+    results: ScreeningResult[];
+  };
 };
 
 export function StockSearch() {
@@ -20,6 +38,7 @@ export function StockSearch() {
   const [result, setResult] = useState<StockInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [registerSuccess, setRegisterSuccess] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   // 銘柄検索
   const handleSearch = async (e: React.FormEvent) => {
@@ -30,6 +49,7 @@ export function StockSearch() {
     setResult(null);
     setError(null);
     setRegisterSuccess(false);
+    setShowDetails(false);
 
     try {
       const response = await fetch(`/api/stocks/search?code=${searchCode.trim()}`);
@@ -95,11 +115,43 @@ export function StockSearch() {
     return `${num.toFixed(2)}${suffix}`;
   };
 
+  const formatScreeningValue = (value: number | string | null) => {
+    if (value === null || value === undefined) return "—";
+    if (typeof value === "string") return value;
+    return value.toFixed(1);
+  };
+
+  // スクリーニング結果のサマリー表示
+  const getScreeningSummary = (screening: StockInfo["screening"]) => {
+    const { passCount, failCount, unknownCount } = screening;
+    const total = passCount + failCount + unknownCount;
+
+    if (failCount > 0) {
+      return {
+        label: "条件未達",
+        className: "bg-red-100 text-red-700",
+        detail: `${passCount}/${total}項目クリア`,
+      };
+    }
+    if (unknownCount > 0) {
+      return {
+        label: "要確認",
+        className: "bg-amber-100 text-amber-700",
+        detail: `${passCount}クリア / ${unknownCount}不明`,
+      };
+    }
+    return {
+      label: "条件合致",
+      className: "bg-green-100 text-green-700",
+      detail: `${passCount}/${total}項目クリア`,
+    };
+  };
+
   return (
     <div className="bg-white rounded-lg border border-primary-200 p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-primary-900">銘柄検索</h2>
-        <span className="text-xs text-primary-500">証券コードで検索して登録</span>
+        <span className="text-xs text-primary-500">証券コードで検索・スクリーニング</span>
       </div>
 
       <form onSubmit={handleSearch} className="flex gap-2">
@@ -128,17 +180,25 @@ export function StockSearch() {
       {/* 検索結果 */}
       {result && (
         <div className="mt-3 bg-primary-50 rounded-lg p-3">
+          {/* 基本情報 */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-sm text-primary-600">{result.code}</span>
                 <span className="text-xs bg-primary-200 text-primary-700 px-1.5 py-0.5 rounded">
                   {result.market}
                 </span>
+                {/* スクリーニング結果バッジ */}
+                {result.screening && (
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${getScreeningSummary(result.screening).className}`}>
+                    {getScreeningSummary(result.screening).label}
+                  </span>
+                )}
               </div>
               <h3 className="font-semibold text-primary-900 truncate">{result.name}</h3>
               <p className="text-xs text-primary-500">{result.sector}</p>
 
+              {/* 指標グリッド */}
               <div className="grid grid-cols-4 gap-2 mt-2 text-xs">
                 <div>
                   <div className="text-primary-400">株価</div>
@@ -157,9 +217,29 @@ export function StockSearch() {
                   <div className="font-numeric">{formatNumber(result.pbr, "倍")}</div>
                 </div>
               </div>
+
+              {/* 追加指標（営業利益率、ROA） */}
+              <div className="grid grid-cols-4 gap-2 mt-1 text-xs">
+                <div>
+                  <div className="text-primary-400">営業利益率</div>
+                  <div className="font-numeric">{formatNumber(result.operatingMargin, "%")}</div>
+                </div>
+                <div>
+                  <div className="text-primary-400">ROA</div>
+                  <div className="font-numeric">{formatNumber(result.roa, "%")}</div>
+                </div>
+                <div>
+                  <div className="text-primary-400">自己資本比率</div>
+                  <div className="font-numeric">{formatNumber(result.equityRatio, "%")}</div>
+                </div>
+                <div>
+                  <div className="text-primary-400">売上成長</div>
+                  <div className="font-numeric">{formatNumber(result.revenueGrowth, "%")}</div>
+                </div>
+              </div>
             </div>
 
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 flex flex-col gap-2">
               {registerSuccess ? (
                 <span className="text-xs text-green-600 font-medium">登録済み ✓</span>
               ) : (
@@ -173,6 +253,43 @@ export function StockSearch() {
               )}
             </div>
           </div>
+
+          {/* スクリーニング詳細トグル */}
+          {result.screening && (
+            <div className="mt-3 pt-3 border-t border-primary-200">
+              <button
+                onClick={() => setShowDetails(!showDetails)}
+                className="text-xs text-primary-600 hover:text-primary-800 flex items-center gap-1"
+              >
+                <span>{showDetails ? "▼" : "▶"}</span>
+                <span>スクリーニング詳細 ({getScreeningSummary(result.screening).detail})</span>
+              </button>
+
+              {showDetails && (
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {result.screening.results.map((r) => (
+                    <div key={r.field} className="flex items-center gap-2">
+                      <span
+                        className={`w-4 h-4 flex items-center justify-center rounded-full text-[10px] ${
+                          r.status === "ok"
+                            ? "bg-green-100 text-green-700"
+                            : r.status === "ng"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {r.status === "ok" ? "○" : r.status === "ng" ? "×" : "?"}
+                      </span>
+                      <span className="text-primary-600">{r.name}</span>
+                      <span className="text-primary-400">
+                        {formatScreeningValue(r.value)} ({r.threshold})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
