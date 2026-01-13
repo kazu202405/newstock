@@ -32,3 +32,9 @@ logs/
 # Temp
 tmp/
 temp/
+tmpclaude-*
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
