@@ -12,7 +12,7 @@ async function fetchStockData(code: string) {
       : "";
 
     // Python APIを呼び出し
-    const apiUrl = baseUrl ? `${baseUrl}/api/stock?code=${code}` : null;
+    const apiUrl = baseUrl ? `${baseUrl}/py/stock?code=${code}` : null;
 
     if (apiUrl) {
       const response = await fetch(apiUrl);

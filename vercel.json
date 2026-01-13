@@ -4,14 +4,14 @@
   "installCommand": "cd frontend && npm install",
   "framework": "nextjs",
   "functions": {
-    "api/*.py": {
+    "py/*.py": {
       "runtime": "python3.9"
     }
   },
   "rewrites": [
     {
-      "source": "/api/stock",
-      "destination": "/api/stock.py"
+      "source": "/py/stock",
+      "destination": "/py/stock.py"
     }
   ]
 }

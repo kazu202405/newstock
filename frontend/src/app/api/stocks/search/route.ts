@@ -70,19 +70,35 @@ function evaluateCondition(
 }
 
 // Python API経由でyfinanceから株式データを取得
-async function fetchFromPythonAPI(code: string): Promise<StockInfo | null> {
+async function fetchFromPythonAPI(code: string, requestUrl?: string): Promise<StockInfo | null> {
   try {
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_VERCEL_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : "";
+    // リクエストURLからホスト名を取得、または環境変数から取得
+    let baseUrl = "";
+
+    if (requestUrl) {
+      try {
+        const url = new URL(requestUrl);
+        baseUrl = `${url.protocol}//${url.host}`;
+      } catch {
+        // URLパース失敗時は環境変数にフォールバック
+      }
+    }
 
     if (!baseUrl) {
+      baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.NEXT_PUBLIC_VERCEL_URL
+        ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+        : "";
+    }
+
+    if (!baseUrl) {
+      console.log("Python API: baseUrlが取得できません");
       return null;
     }
 
-    const apiUrl = `${baseUrl}/api/stock?code=${code}`;
+    console.log(`Python API呼び出し: ${baseUrl}/py/stock?code=${code}`);
+    const apiUrl = `${baseUrl}/py/stock?code=${code}`;
     const response = await fetch(apiUrl);
 
     if (!response.ok) {
@@ -169,7 +185,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // 1. Python API (yfinance) を試行
-    const pythonResult = await fetchFromPythonAPI(code);
+    const pythonResult = await fetchFromPythonAPI(code, request.url);
     if (pythonResult) {
       return NextResponse.json({ stock: pythonResult });
     }
