@@ -1,8 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// Yahoo Financeから株式データを取得
+// Python API経由でyfinanceから株式データを取得
 async function fetchStockData(code: string) {
+  try {
+    // 本番環境ではVercelのPython APIを、開発環境では直接Yahoo Financeを試行
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_VERCEL_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : "";
+
+    // Python APIを呼び出し
+    const apiUrl = baseUrl ? `${baseUrl}/api/stock?code=${code}` : null;
+
+    if (apiUrl) {
+      const response = await fetch(apiUrl);
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          return result.data;
+        }
+      }
+    }
+
+    // フォールバック: 直接Yahoo Finance APIを試行
+    return await fetchFromYahooFinanceDirect(code);
+  } catch (error) {
+    console.error(`データ取得エラー (${code}):`, error);
+    return await fetchFromYahooFinanceDirect(code);
+  }
+}
+
+// 直接Yahoo Finance APIからデータ取得（フォールバック）
+async function fetchFromYahooFinanceDirect(code: string) {
   const ticker = `${code}.T`;
   const modules = [
     "price",
@@ -83,7 +114,7 @@ async function fetchStockData(code: string) {
       dividend_yield: dividendYield,
     };
   } catch (error) {
-    console.error(`Yahoo Finance取得エラー (${code}):`, error);
+    console.error(`Yahoo Finance直接取得エラー (${code}):`, error);
     return null;
   }
 }
