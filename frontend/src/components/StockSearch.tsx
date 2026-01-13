@@ -1,14 +1,6 @@
 "use client";
 
-import { useState } from "react";
-
-type ScreeningResult = {
-  field: string;
-  name: string;
-  value: number | string | null;
-  threshold: string;
-  status: "ok" | "ng" | "unknown";
-};
+import { useState, useMemo } from "react";
 
 type StockInfo = {
   code: string;
@@ -24,13 +16,27 @@ type StockInfo = {
   roa: number | null;
   equityRatio: number | null;
   revenueGrowth: number | null;
-  screening: {
-    passCount: number;
-    failCount: number;
-    unknownCount: number;
-    results: ScreeningResult[];
-  };
+  screening?: unknown; // APIから来るが使わない
 };
+
+type ScreeningCondition = {
+  field: keyof StockInfo;
+  name: string;
+  op: ">" | ">=" | "<" | "<=";
+  defaultValue: number;
+  unit: string;
+};
+
+// デフォルトのスクリーニング条件
+const DEFAULT_CONDITIONS: ScreeningCondition[] = [
+  { field: "marketCap", name: "時価総額", op: "<=", defaultValue: 700, unit: "億円" },
+  { field: "equityRatio", name: "自己資本比率", op: ">=", defaultValue: 30, unit: "%" },
+  { field: "revenueGrowth", name: "売上成長率", op: ">", defaultValue: 0, unit: "%" },
+  { field: "operatingMargin", name: "営業利益率", op: ">=", defaultValue: 10, unit: "%" },
+  { field: "roa", name: "ROA", op: ">", defaultValue: 4.5, unit: "%" },
+  { field: "per", name: "PER", op: "<", defaultValue: 40, unit: "倍" },
+  { field: "pbr", name: "PBR", op: "<", defaultValue: 10, unit: "倍" },
+];
 
 export function StockSearch() {
   const [searchCode, setSearchCode] = useState("");
@@ -38,7 +44,70 @@ export function StockSearch() {
   const [result, setResult] = useState<StockInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [registerSuccess, setRegisterSuccess] = useState(false);
+  const [showConditions, setShowConditions] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+
+  // ユーザー設定可能な条件値
+  const [conditions, setConditions] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    DEFAULT_CONDITIONS.forEach((c) => {
+      initial[c.field] = c.defaultValue;
+    });
+    return initial;
+  });
+
+  // 条件のON/OFF
+  const [conditionEnabled, setConditionEnabled] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    DEFAULT_CONDITIONS.forEach((c) => {
+      initial[c.field] = true;
+    });
+    return initial;
+  });
+
+  // スクリーニング実行
+  const screeningResults = useMemo(() => {
+    if (!result) return null;
+
+    const results = DEFAULT_CONDITIONS.map((cond) => {
+      const value = result[cond.field] as number | null;
+      const threshold = conditions[cond.field];
+      const enabled = conditionEnabled[cond.field];
+
+      if (!enabled) {
+        return { ...cond, value, threshold, status: "skip" as const };
+      }
+
+      if (value === null || value === undefined || isNaN(value)) {
+        return { ...cond, value, threshold, status: "unknown" as const };
+      }
+
+      let passed = false;
+      switch (cond.op) {
+        case ">":
+          passed = value > threshold;
+          break;
+        case ">=":
+          passed = value >= threshold;
+          break;
+        case "<":
+          passed = value < threshold;
+          break;
+        case "<=":
+          passed = value <= threshold;
+          break;
+      }
+
+      return { ...cond, value, threshold, status: passed ? ("ok" as const) : ("ng" as const) };
+    });
+
+    const activeResults = results.filter((r) => r.status !== "skip");
+    const passCount = activeResults.filter((r) => r.status === "ok").length;
+    const failCount = activeResults.filter((r) => r.status === "ng").length;
+    const unknownCount = activeResults.filter((r) => r.status === "unknown").length;
+
+    return { results, passCount, failCount, unknownCount, total: activeResults.length };
+  }, [result, conditions, conditionEnabled]);
 
   // 銘柄検索
   const handleSearch = async (e: React.FormEvent) => {
@@ -98,6 +167,19 @@ export function StockSearch() {
     }
   };
 
+  // 条件値の更新
+  const updateCondition = (field: string, value: string) => {
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setConditions((prev) => ({ ...prev, [field]: num }));
+    }
+  };
+
+  // 条件のON/OFF切り替え
+  const toggleCondition = (field: string) => {
+    setConditionEnabled((prev) => ({ ...prev, [field]: !prev[field] }));
+  };
+
   // フォーマット
   const formatPrice = (price: number | null) => {
     if (price === null) return "—";
@@ -115,16 +197,10 @@ export function StockSearch() {
     return `${num.toFixed(2)}${suffix}`;
   };
 
-  const formatScreeningValue = (value: number | string | null) => {
-    if (value === null || value === undefined) return "—";
-    if (typeof value === "string") return value;
-    return value.toFixed(1);
-  };
-
-  // スクリーニング結果のサマリー表示
-  const getScreeningSummary = (screening: StockInfo["screening"]) => {
-    const { passCount, failCount, unknownCount } = screening;
-    const total = passCount + failCount + unknownCount;
+  // スクリーニング結果のサマリー
+  const getScreeningSummary = () => {
+    if (!screeningResults) return null;
+    const { passCount, failCount, unknownCount, total } = screeningResults;
 
     if (failCount > 0) {
       return {
@@ -147,13 +223,57 @@ export function StockSearch() {
     };
   };
 
+  const summary = getScreeningSummary();
+
   return (
     <div className="bg-white rounded-lg border border-primary-200 p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-primary-900">銘柄検索</h2>
-        <span className="text-xs text-primary-500">証券コードで検索・スクリーニング</span>
+        <h2 className="text-sm font-semibold text-primary-900">銘柄検索・スクリーニング</h2>
+        <button
+          onClick={() => setShowConditions(!showConditions)}
+          className="text-xs text-primary-600 hover:text-primary-800"
+        >
+          {showConditions ? "条件を隠す ▲" : "条件を設定 ▼"}
+        </button>
       </div>
 
+      {/* スクリーニング条件設定 */}
+      {showConditions && (
+        <div className="mb-4 p-3 bg-primary-50 rounded-lg">
+          <div className="text-xs text-primary-600 mb-2">スクリーニング条件（チェックで有効化）</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {DEFAULT_CONDITIONS.map((cond) => (
+              <div key={cond.field} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  id={`cond-${cond.field}`}
+                  checked={conditionEnabled[cond.field]}
+                  onChange={() => toggleCondition(cond.field)}
+                  className="w-3 h-3"
+                />
+                <label
+                  htmlFor={`cond-${cond.field}`}
+                  className={`text-xs ${conditionEnabled[cond.field] ? "text-primary-700" : "text-primary-400"}`}
+                >
+                  {cond.name}
+                </label>
+                <span className="text-xs text-primary-400">{cond.op}</span>
+                <input
+                  type="number"
+                  value={conditions[cond.field]}
+                  onChange={(e) => updateCondition(cond.field, e.target.value)}
+                  disabled={!conditionEnabled[cond.field]}
+                  step={cond.unit === "%" ? "0.1" : "1"}
+                  className="w-16 px-1 py-0.5 text-xs border border-primary-200 rounded disabled:bg-gray-100 disabled:text-gray-400"
+                />
+                <span className="text-xs text-primary-400">{cond.unit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 検索フォーム */}
       <form onSubmit={handleSearch} className="flex gap-2">
         <input
           type="text"
@@ -173,9 +293,7 @@ export function StockSearch() {
       </form>
 
       {/* エラー */}
-      {error && (
-        <div className="mt-3 text-sm text-red-600">{error}</div>
-      )}
+      {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
 
       {/* 検索結果 */}
       {result && (
@@ -188,10 +306,9 @@ export function StockSearch() {
                 <span className="text-xs bg-primary-200 text-primary-700 px-1.5 py-0.5 rounded">
                   {result.market}
                 </span>
-                {/* スクリーニング結果バッジ */}
-                {result.screening && (
-                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${getScreeningSummary(result.screening).className}`}>
-                    {getScreeningSummary(result.screening).label}
+                {summary && (
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${summary.className}`}>
+                    {summary.label}
                   </span>
                 )}
               </div>
@@ -218,7 +335,6 @@ export function StockSearch() {
                 </div>
               </div>
 
-              {/* 追加指標（営業利益率、ROA） */}
               <div className="grid grid-cols-4 gap-2 mt-1 text-xs">
                 <div>
                   <div className="text-primary-400">営業利益率</div>
@@ -239,7 +355,7 @@ export function StockSearch() {
               </div>
             </div>
 
-            <div className="flex-shrink-0 flex flex-col gap-2">
+            <div className="flex-shrink-0">
               {registerSuccess ? (
                 <span className="text-xs text-green-600 font-medium">登録済み ✓</span>
               ) : (
@@ -254,38 +370,41 @@ export function StockSearch() {
             </div>
           </div>
 
-          {/* スクリーニング詳細トグル */}
-          {result.screening && (
+          {/* スクリーニング詳細 */}
+          {screeningResults && (
             <div className="mt-3 pt-3 border-t border-primary-200">
               <button
                 onClick={() => setShowDetails(!showDetails)}
                 className="text-xs text-primary-600 hover:text-primary-800 flex items-center gap-1"
               >
                 <span>{showDetails ? "▼" : "▶"}</span>
-                <span>スクリーニング詳細 ({getScreeningSummary(result.screening).detail})</span>
+                <span>スクリーニング詳細 ({summary?.detail})</span>
               </button>
 
               {showDetails && (
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  {result.screening.results.map((r) => (
-                    <div key={r.field} className="flex items-center gap-2">
-                      <span
-                        className={`w-4 h-4 flex items-center justify-center rounded-full text-[10px] ${
-                          r.status === "ok"
-                            ? "bg-green-100 text-green-700"
-                            : r.status === "ng"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {r.status === "ok" ? "○" : r.status === "ng" ? "×" : "?"}
-                      </span>
-                      <span className="text-primary-600">{r.name}</span>
-                      <span className="text-primary-400">
-                        {formatScreeningValue(r.value)} ({r.threshold})
-                      </span>
-                    </div>
-                  ))}
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {screeningResults.results
+                    .filter((r) => r.status !== "skip")
+                    .map((r) => (
+                      <div key={r.field} className="flex items-center gap-2">
+                        <span
+                          className={`w-4 h-4 flex items-center justify-center rounded-full text-[10px] ${
+                            r.status === "ok"
+                              ? "bg-green-100 text-green-700"
+                              : r.status === "ng"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-gray-100 text-gray-500"
+                          }`}
+                        >
+                          {r.status === "ok" ? "○" : r.status === "ng" ? "×" : "?"}
+                        </span>
+                        <span className="text-primary-600">{r.name}</span>
+                        <span className="text-primary-400">
+                          {r.value !== null ? r.value.toFixed(1) : "—"} ({r.op} {r.threshold}
+                          {r.unit})
+                        </span>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
